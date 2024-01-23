@@ -1,25 +1,29 @@
-import logging
-import os
-from typing import Annotated, Optional
+import functools
+import os.path
+from typing import Optional
 
+import pandas as pd
 import vtk
-
+import qt
+import matplotlib
+import qimage2ndarray
+import matplotlib.pyplot as plt
+import numpy as np
 import slicer
+import pyopenms as oms
 from slicer.i18n import tr as _
 from slicer.i18n import translate
 from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
-from slicer.parameterNodeWrapper import (
-    parameterNodeWrapper,
-    WithinRange,
-)
+from slicer.parameterNodeWrapper import parameterNodeWrapper
 
 from slicer import vtkMRMLScalarVolumeNode
 
 
-#
-# MassSpecViewModule
-#
+matplotlib.use("Agg")
+
+
+# Module Declaration
 
 
 class MassSpecViewModule(ScriptedLoadableModule):
@@ -29,81 +33,18 @@ class MassSpecViewModule(ScriptedLoadableModule):
 
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
-        self.parent.title = _("MassSpecViewModule")  # TODO: make this more human readable by adding spaces
-        # TODO: set categories (folders where the module shows up in the module selector)
-        self.parent.categories = [translate("qSlicerAbstractCoreModule", "Examples")]
-        self.parent.dependencies = []  # TODO: add here list of module names that this module requires
-        self.parent.contributors = [
-            "John Doe (AnyWare Corp.)"]  # TODO: replace with "Firstname Lastname (Organization)"
-        # TODO: update with short description of the module and a link to online module documentation
-        # _() function marks text as translatable to other languages
-        self.parent.helpText = _("""
-This is an example of scripted loadable module bundled in an extension.
-See more information in <a href="https://github.com/organization/projectname#MassSpecViewModule">module documentation</a>.
-""")
-        # TODO: replace with organization, grant and thanks
-        self.parent.acknowledgementText = _("""
-This file was originally developed by Jean-Christophe Fillion-Robin, Kitware Inc., Andras Lasso, PerkLab,
-and Steve Pieper, Isomics, Inc. and was partially funded by NIH grant 3P41RR013218-12S1.
-""")
+        self.parent.title = _("Mass Spectrometry Viewer")
+        self.parent.categories = [translate("qSlicerAbstractCoreModule", "iKnife")]
+        self.parent.dependencies = []
+        self.parent.contributors = ["Mohammad Farmhand (Med-i Lab)"]
+        self.parent.helpText = _("Displays mass spectrometry data in 3D.")
+        self.parent.acknowledgementText = _("This is just a toy module.")
 
         # Additional initialization step after application startup is complete
-        slicer.app.connect("startupCompleted()", registerSampleData)
+        # slicer.app.connect("startupCompleted()", registerSampleData)
 
 
-#
-# Register sample data sets in Sample Data module
-#
-
-
-def registerSampleData():
-    """Add data sets to Sample Data module."""
-    # It is always recommended to provide sample data for users to make it easy to try the module,
-    # but if no sample data is available then this method (and associated startupCompeted signal connection) can be removed.
-
-    import SampleData
-
-    iconsPath = os.path.join(os.path.dirname(__file__), "Resources/Icons")
-
-    # To ensure that the source code repository remains small (can be downloaded and installed quickly)
-    # it is recommended to store data sets that are larger than a few MB in a Github release.
-
-    # MassSpecViewModule1
-    SampleData.SampleDataLogic.registerCustomSampleDataSource(
-        # Category and sample name displayed in Sample Data module
-        category="MassSpecViewModule",
-        sampleName="MassSpecViewModule1",
-        # Thumbnail should have size of approximately 260x280 pixels and stored in Resources/Icons folder.
-        # It can be created by Screen Capture module, "Capture all views" option enabled, "Number of images" set to "Single".
-        thumbnailFileName=os.path.join(iconsPath, "MassSpecViewModule1.png"),
-        # Download URL and target file name
-        uris="https://github.com/Slicer/SlicerTestingData/releases/download/SHA256/998cb522173839c78657f4bc0ea907cea09fd04e44601f17c82ea27927937b95",
-        fileNames="MassSpecViewModule1.nrrd",
-        # Checksum to ensure file integrity. Can be computed by this command:
-        #  import hashlib; print(hashlib.sha256(open(filename, "rb").read()).hexdigest())
-        checksums="SHA256:998cb522173839c78657f4bc0ea907cea09fd04e44601f17c82ea27927937b95",
-        # This node name will be used when the data set is loaded
-        nodeNames="MassSpecViewModule1",
-    )
-
-    # MassSpecViewModule2
-    SampleData.SampleDataLogic.registerCustomSampleDataSource(
-        # Category and sample name displayed in Sample Data module
-        category="MassSpecViewModule",
-        sampleName="MassSpecViewModule2",
-        thumbnailFileName=os.path.join(iconsPath, "MassSpecViewModule2.png"),
-        # Download URL and target file name
-        uris="https://github.com/Slicer/SlicerTestingData/releases/download/SHA256/1a64f3f422eb3d1c9b093d1a18da354b13bcf307907c66317e2463ee530b7a97",
-        fileNames="MassSpecViewModule2.nrrd",
-        checksums="SHA256:1a64f3f422eb3d1c9b093d1a18da354b13bcf307907c66317e2463ee530b7a97",
-        # This node name will be used when the data set is loaded
-        nodeNames="MassSpecViewModule2",
-    )
-
-
-#
-# MassSpecViewModuleParameterNode
-#
+# Module Parameters
 
 
 @parameterNodeWrapper
@@ -111,23 +52,17 @@ class MassSpecViewModuleParameterNode:
     """
     The parameters needed by module.
 
-    inputVolume - The volume to threshold.
+    inputRAW - The volume to threshold.
     imageThreshold - The value at which to threshold the input volume.
     invertThreshold - If true, will invert the threshold.
     thresholdedVolume - The output volume that will contain the thresholded volume.
     invertedVolume - The output volume that will contain the inverted thresholded volume.
     """
 
-    inputVolume: vtkMRMLScalarVolumeNode
-    imageThreshold: Annotated[float, WithinRange(-100, 500)] = 100
-    invertThreshold: bool = False
-    thresholdedVolume: vtkMRMLScalarVolumeNode
-    invertedVolume: vtkMRMLScalarVolumeNode
+    inputRAW: str = ""
 
 
-#
-# MassSpecViewModuleWidget
-#
+# Module Widget
 
 
 class MassSpecViewModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
@@ -169,7 +104,7 @@ class MassSpecViewModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
         # Buttons
-        self.ui.applyButton.connect("clicked(bool)", self.onApplyButton)
+        self.ui.displayButton.connect("clicked(bool)", self.onBrowseClicked)
 
         # Make sure parameter node is initialized (needed for module reload)
         self.initializeParameterNode()
@@ -189,7 +124,7 @@ class MassSpecViewModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin
         if self._parameterNode:
             self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
             self._parameterNodeGuiTag = None
-            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
+            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._canDisplay)
 
     def onSceneStartClose(self, caller, event) -> None:
         """Called just before the scene is closed."""
@@ -210,10 +145,10 @@ class MassSpecViewModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin
         self.setParameterNode(self.logic.getParameterNode())
 
         # Select default input nodes if nothing is selected yet to save a few clicks for the user
-        if not self._parameterNode.inputVolume:
-            firstVolumeNode = slicer.mrmlScene.GetFirstNodeByClass("vtkMRMLScalarVolumeNode")
-            if firstVolumeNode:
-                self._parameterNode.inputVolume = firstVolumeNode
+        # if not self._parameterNode.inputVolume:
+        #     firstVolumeNode = slicer.mrmlScene.GetFirstNodeByClass("vtkMRMLScalarVolumeNode")
+        #     if firstVolumeNode:
+        #         self._parameterNode.inputVolume = firstVolumeNode
 
     def setParameterNode(self, inputParameterNode: Optional[MassSpecViewModuleParameterNode]) -> None:
         """
@@ -223,41 +158,20 @@ class MassSpecViewModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin
 
         if self._parameterNode:
             self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
-            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
         self._parameterNode = inputParameterNode
         if self._parameterNode:
             # Note: in the .ui file, a Qt dynamic property called "SlicerParameterName" is set on each
             # ui element that needs connection.
             self._parameterNodeGuiTag = self._parameterNode.connectGui(self.ui)
-            self.addObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
-            self._checkCanApply()
 
-    def _checkCanApply(self, caller=None, event=None) -> None:
-        if self._parameterNode and self._parameterNode.inputVolume and self._parameterNode.thresholdedVolume:
-            self.ui.applyButton.toolTip = _("Compute output volume")
-            self.ui.applyButton.enabled = True
-        else:
-            self.ui.applyButton.toolTip = _("Select input and output volume nodes")
-            self.ui.applyButton.enabled = False
-
-    def onApplyButton(self) -> None:
+    def onBrowseClicked(self) -> None:
         """Run processing when user clicks "Apply" button."""
         with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
             # Compute output
-            self.logic.process(self.ui.inputSelector.currentNode(), self.ui.outputSelector.currentNode(),
-                               self.ui.imageThresholdSliderWidget.value, self.ui.invertOutputCheckBox.checked)
-
-            # Compute inverted output (if needed)
-            if self.ui.invertedOutputSelector.currentNode():
-                # If additional output volume is selected then result with inverted threshold is written there
-                self.logic.process(self.ui.inputSelector.currentNode(), self.ui.invertedOutputSelector.currentNode(),
-                                   self.ui.imageThresholdSliderWidget.value, not self.ui.invertOutputCheckBox.checked,
-                                   showResult=False)
+            self.logic.process(self.ui.inputRAW.currentPath)
 
 
-#
-# MassSpecViewModuleLogic
-#
+# Module Logic
 
 
 class MassSpecViewModuleLogic(ScriptedLoadableModuleLogic):
@@ -270,56 +184,78 @@ class MassSpecViewModuleLogic(ScriptedLoadableModuleLogic):
     https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
     """
 
+    cylinderRadius = 100
+    cylinderHeight = 500
+    cylinderResolution = 16
+    cylinderCenter = [0, 0, 0]
+
     def __init__(self) -> None:
         """Called when the logic class is instantiated. Can be used for initializing member variables."""
         ScriptedLoadableModuleLogic.__init__(self)
+        self.experiment = None
+        self.peaks = None
+        self.widget = None
 
     def getParameterNode(self):
         return MassSpecViewModuleParameterNode(super().getParameterNode())
 
-    def process(self,
-                inputVolume: vtkMRMLScalarVolumeNode,
-                outputVolume: vtkMRMLScalarVolumeNode,
-                imageThreshold: float,
-                invert: bool = False,
-                showResult: bool = True) -> None:
+    def process(self, inputFilePath: str) -> None:
         """
         Run the processing algorithm.
         Can be used without GUI widget.
-        :param inputVolume: volume to be thresholded
-        :param outputVolume: thresholding result
-        :param imageThreshold: values above/below this threshold will be set to 0
-        :param invert: if True then values above the threshold will be set to 0, otherwise values below are set to 0
-        :param showResult: show output volume in slice viewers
+        :param inputFilePath: target mzML directory.
         """
 
-        if not inputVolume or not outputVolume:
-            raise ValueError("Input or output volume is invalid")
+        if not inputFilePath.endswith('.mzML') or not os.path.exists(inputFilePath):
+            slicer.util.messageBox('Bad File')
+            return
 
-        import time
+        # Drawing the Cylinder
 
-        startTime = time.time()
-        logging.info("Processing started")
+        cylinder = vtk.vtkCylinderSource()
+        cylinder.SetRadius(self.cylinderRadius)
+        cylinder.SetHeight(self.cylinderHeight)
+        cylinder.SetCenter(*self.cylinderCenter)
+        cylinder.SetResolution(self.cylinderResolution)
+        # Create a model node that displays output of the source
+        modelNode = slicer.modules.models.logic().AddModel(cylinder.GetOutputPort())
+        # Adjust display properties
+        modelNode.GetDisplayNode().SetColor(1, 0, 0)
+        modelNode.GetDisplayNode().SetOpacity(0.8)
 
-        # Compute the thresholded output volume using the "Threshold Scalar Volume" CLI module
-        cliParams = {
-            "InputVolume": inputVolume.GetID(),
-            "OutputVolume": outputVolume.GetID(),
-            "ThresholdValue": imageThreshold,
-            "ThresholdType": "Above" if invert else "Below",
-        }
-        cliNode = slicer.cli.run(slicer.modules.thresholdscalarvolume, None, cliParams, wait_for_completion=True,
-                                 update_display=showResult)
-        # We don't need the CLI module node anymore, remove it to not clutter the scene with it
-        slicer.mrmlScene.RemoveNode(cliNode)
+        # Reading the RAW File
 
-        stopTime = time.time()
-        logging.info(f"Processing completed in {stopTime - startTime:.2f} seconds")
+        self.experiment = oms.MSExperiment()
+        oms.MzMLFile().load(inputFilePath, self.experiment)
+
+        chrom, = self.experiment.getChromatograms()
+        arr = chrom.get_peaks()
+        arr = np.array(arr).T
+        arr[:, 1] /= arr[:, 1].max()
+        slicer.util.plot(arr, xColumnIndex=0, title='Chromatogram')
+
+        self.peaks = pd.read_csv(inputFilePath.replace('.mzML', '.csv'))
+        coords = self.peaks[['x', 'y', 'z']].values
+
+        # Adding Markups to Scene
+
+        for index, (x, y, z) in enumerate(coords):
+            markupsNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLMarkupsFiducialNode')
+            markupsNode.SetName(f'{index}')
+            title = f'{self.peaks.iloc[index].label}: {self.peaks.iloc[index].desc}'
+            markupsNode.AddControlPoint(x, y, z, title)
+            func = functools.partial(self.plot_spectrometry_data, index=index)
+            markupsNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointStartInteractionEvent, func)
+
+    def plot_spectrometry_data(self, caller, event, index):
+        spectra = self.experiment.getSpectra()
+        mzs, ints = spectra[index].get_peaks()
+        ints[ints > 1e5] = 0
+        arr = np.array((mzs, ints)).T
+        slicer.util.plot(arr, xColumnIndex=0, title='Spectrum')
 
 
-#
-# MassSpecViewModuleTest
-#
+# Module Test
 
 
 class MassSpecViewModuleTest(ScriptedLoadableModuleTest):
@@ -350,37 +286,4 @@ class MassSpecViewModuleTest(ScriptedLoadableModuleTest):
         your test should break so they know that the feature is needed.
         """
 
-        self.delayDisplay("Starting the test")
-
-        # Get/create input data
-
-        import SampleData
-
-        registerSampleData()
-        inputVolume = SampleData.downloadSample("MassSpecViewModule1")
-        self.delayDisplay("Loaded test data set")
-
-        inputScalarRange = inputVolume.GetImageData().GetScalarRange()
-        self.assertEqual(inputScalarRange[0], 0)
-        self.assertEqual(inputScalarRange[1], 695)
-
-        outputVolume = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLScalarVolumeNode")
-        threshold = 100
-
-        # Test the module logic
-
-        logic = MassSpecViewModuleLogic()
-
-        # Test algorithm with non-inverted threshold
-        logic.process(inputVolume, outputVolume, threshold, True)
-        outputScalarRange = outputVolume.GetImageData().GetScalarRange()
-        self.assertEqual(outputScalarRange[0], inputScalarRange[0])
-        self.assertEqual(outputScalarRange[1], threshold)
-
-        # Test algorithm with inverted threshold
-        logic.process(inputVolume, outputVolume, threshold, False)
-        outputScalarRange = outputVolume.GetImageData().GetScalarRange()
-        self.assertEqual(outputScalarRange[0], inputScalarRange[0])
-        self.assertEqual(outputScalarRange[1], inputScalarRange[1])
-
-        self.delayDisplay("Test passed")
+        self.delayDisplay("There is no test!")
